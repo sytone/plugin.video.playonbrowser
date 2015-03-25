@@ -2,11 +2,13 @@ import sys
 import urlparse
 import urllib, urllib2, xbmcplugin, xbmcaddon, xbmcgui, string, htmllib, os, platform, random, calendar, re
 import CommonFunctions
-
-#from elementtree import ElementTree
 import xml.etree.ElementTree as ElementTree 
 
-lib_path = xbmcaddon.Addon('plugin.video.playonbrowser'). \
+addonId = 'plugin.video.playonbrowser'
+addonVersion = '1.0.0'
+
+
+lib_path = xbmcaddon.Addon(addonId). \
     getAddonInfo('path') + '/resources/lib/' 
 sys.path.append(lib_path) 
 import m3u8
@@ -20,11 +22,11 @@ print args
 
 # playonInternalUrl = 'http://m.playon.tv/'
 # need to move to config. 
-playonInternalUrl = 'http://192.168.0.234:54479'
+
+settings = xbmcaddon.Addon(id=addonId)
+playonInternalUrl = settings.getSetting("playonserver").rstrip('/')
 playonDataPath = '/data/data.xml'
 
-addonId = 'plugin.video.playonbrowser'
-addonVersion = '1.0.0'
 xbmcplugin.setContent(addonHandle, 'movies')
 
 
