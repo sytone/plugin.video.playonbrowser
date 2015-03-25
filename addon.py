@@ -60,9 +60,6 @@ def buildMenu():
     else:
         xbmcgui.Dialog().ok(addonId, 'Could not open URL %s to create menu' % (url))
 
-def testPlayStream():
-    xbmc.Player().play('http://192.168.0.234:54479/netflix-18c538b2f9ca4a3ea7717776cc1a35a0/3200000/main_3200000.m3u8')
-        
 def getXml(url):
     try:
         print addonId + ':  getXml: '+ url
