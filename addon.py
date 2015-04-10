@@ -19,7 +19,7 @@ import xml.etree.ElementTree as ElementTree
 # 
 #   Set-up global variables
 addonId = 'plugin.video.playonbrowser'
-addonVersion = '1.0.0'
+addonVersion = '1.0.1'
 mediaPath = xbmcaddon.Addon(addonId).getAddonInfo('path') + '/resources/media/' 
 playonDataPath = '/data/data.xml'
 
