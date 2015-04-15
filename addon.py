@@ -15,6 +15,15 @@ import calendar
 import re
 import CommonFunctions
 import xml.etree.ElementTree as ElementTree 
+#from addon.common.net import Net
+#from metahandler import metahandlers
+
+try:
+    import StorageServer
+    Cache_Enabled = True
+except Exception,e:
+    import storageserverdummy as StorageServer
+    Cache_Enabled = False
 
 # 
 #   Set-up global variables
@@ -67,6 +76,7 @@ args = urlparse.parse_qs(sys.argv[2][1:])
 settings = xbmcaddon.Addon(id=addonId)
 playonInternalUrl = settings.getSetting("playonserver").rstrip('/')
 debug = settings.getSetting("debug")
+cachePeriod = 1 #hours
 
 #
 #   Set-up some KODI defaults. 
@@ -101,15 +111,32 @@ def build_playon_url(href = ""):
 def build_playon_search_url(id, searchterm):
     """ Generates a search URL for the given ID. Will only work with some providers. """
     log_message('build_playon_search_url: '+ id + "::" + searchterm)
-    #TODO: work out the search term criteria.
+    #TODO: work out the full search term criteria.
     #TODO: Check international encoding.
+    searchterm = urllib.quote_plus(searchterm)
+    log_message('build_playon_search_url: '+ id + "::" + searchterm)
     return playonInternalUrl + playonDataPath + "?id=" + id + "&searchterm=dc:description%20contains%20" + searchterm
 
     
 def get_xml(url):
+    if Cache_Enabled == True:  
+        commoncache = StorageServer.StorageServer("plugin.video.playonbrowser",cachePeriod)
+        try:
+            result = commoncache.cacheFunction(get_xml_request, url)
+        except:
+            result = get_xml_request(url)
+            pass
+    else:
+        result = get_xml_request(url)
+    if not result:
+        result = False
+    return result  
+    
+    
+def get_xml_request(url):
     """ This will pull down the XML content and return a ElementTree. """
     try:
-        log_message('get_xml: '+ url)
+        log_message('get_xml: ' + url)
         usock = urllib2.urlopen(url)
         response = usock.read()
         usock.close()
@@ -190,15 +217,22 @@ def build_menu_for_search(xml):
         Will generate a list of directory items for the UI based on the xml values. 
         This breaks the normal name tree approach for the moment
 
-        The folder could be at any depth in the tree, if the category is searchable
-        then we can render a search option. 
+        Results can have folders and videos. 
         
         Example XML Blob:
-            <group name="Netflix" href="/data/data.xml?id=netflix" type="folder" art="/images/provider.png?id=netflix" searchable="true" id="netflix" childs="0" category="3">
-                <group name="My List" href="/data/data.xml?id=netflix-..." type="folder" childs="0" />
-                <group name="Browse Genres" href="/data/data.xml?id=netflix-..." type="folder" childs="0" />
-                <group name="Just for Kids" href="/data/data.xml?id=netflix-..." type="folder" childs="0" />
-                <group name="Top Picks for Jon" href="/data/data.xml?id=netflix-..." type="folder" childs="0" />
+        http://192.168.0.140:54479/data/data.xml?id=netflix&searchterm=dc:description%20contains%20american+dad
+        <group name="Netflix" href="/data/data.xml?id=netflix" type="folder" art="/images/provider.png?id=netflix" searchable="true" id="netflix" childs="0" category="3">
+            <group name="American Dad!" href="/data/data.xml?id=netflix-..." type="folder" childs="0" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
+        </group>
+
+        http://192.168.0.140:54479/data/data.xml?id=netflix&searchterm=dc:description%20contains%20dog
+
+        <group name="Netflix" href="/data/data.xml?id=netflix" type="folder" art="/images/provider.png?id=netflix" searchable="true" id="netflix" childs="0" category="3">
+            <group name="Clifford the Big Red Dog" href="/data/data.xml?id=netflix-..." type="folder" childs="0" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
+            <group name="Courage the Cowardly Dog" href="/data/data.xml?id=netflix-..." type="folder" childs="0" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
+            <group name="Dogs with Jobs" href="/data/data.xml?id=netflix-..." type="folder" childs="0" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
+            <group name="The 12 Dogs of Christmas" href="/data/data.xml?id=netflix-..." type="video" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
+            <group name="12 Dogs of Christmas: Great Puppy Rescue" href="/data/data.xml?id=netflix-..." type="video" art="/images/poster.jpg?id=netflix-...&amp;size=large" />
     """
 
     for group in xml.getiterator('group'):
@@ -253,8 +287,7 @@ def build_menu_for_mode_folder(href, foldername, nametree):
                 <group name="Top Picks for Jon" href="/data/data.xml?id=netflix-..." type="folder" childs="0" />
     """
 
-    log_message("build_menu_for_mode_folder:" + foldername + "::" + href + "::" + nametree)
-
+    log_message("Entering build_menu_for_mode_folder")
     playonUrl = build_playon_url(href)
     xml = get_xml(playonUrl)
 
@@ -272,11 +305,19 @@ def build_menu_for_mode_folder(href, foldername, nametree):
         
             # Build up the name tree.
             name = group.attrib.get('name').encode('ascii', 'ignore')
-            url = build_url({'mode': group.attrib.get('type'), 
+            if nametree == None:
+                url = build_url({'mode': group.attrib.get('type'), 
+                                'foldername': name, 
+                                'href': group.attrib.get('href'), 
+                                'parenthref': href})
+            else:
+                url = build_url({'mode': group.attrib.get('type'), 
                                 'foldername': name, 
                                 'href': group.attrib.get('href'), 
                                 'parenthref': href, 
                                 'nametree': nametree + '/' + name})
+            
+            log_message("url = " + url)
 
             if group.attrib.get('art') == None:
                 image = 'DefaultVideo.png'
@@ -284,6 +325,19 @@ def build_menu_for_mode_folder(href, foldername, nametree):
                 image = playonInternalUrl + group.attrib.get('art')
             
             if group.attrib.get('type') == 'folder':
+                """
+                try:
+                    
+                    metaget = metahandlers.MetaData()
+                    meta = metaget.get_meta('tvshow', name)
+                
+                    li = xbmcgui.ListItem(name, iconImage=meta['cover_url'], thumbnailImage=meta['cover_url'])
+                    li.setInfo(type="Video", infoLabels=meta)
+                    li.setProperty('fanart_image', meta['backdrop_url'])
+                    xbmcplugin.addDirectoryItem(handle=addonHandle, url=url, listitem=li, isFolder=True)
+                except Exception,e:
+                """
+                #log_message(str(e))
                 li = xbmcgui.ListItem(name, iconImage=image, thumbnailImage=image)
                 xbmcplugin.addDirectoryItem(handle=addonHandle, url=url, listitem=li, isFolder=True)
             
@@ -291,9 +345,23 @@ def build_menu_for_mode_folder(href, foldername, nametree):
                 playonUrl = build_playon_url(group.attrib.get('href'))
                 mediaXml = get_xml(playonUrl)
                 mediaNode = mediaXml.find('media')
+                """
+                try:
+                    
+                    metaget = metahandlers.MetaData()
+                    meta = metaget.get_meta('movie', name)
+                
+                    li = xbmcgui.ListItem(name, iconImage=meta['cover_url'], thumbnailImage=meta['cover_url'])
+                    li.setInfo(type="Video", infoLabels=meta)
+                    li.setProperty('fanart_image', meta['backdrop_url'])
+                    xbmcplugin.addDirectoryItem(handle=addonHandle, url=url, listitem=li)
+                except Exception,e:
+                    log_message(str(e))
+                    """
                 li = xbmcgui.ListItem(name, iconImage=image, thumbnailImage=image)
                 li.setInfo('video', { 'plotoutline': group.attrib.get('description'), 'title': name})
                 xbmcplugin.addDirectoryItem(handle=addonHandle, url=url, listitem=li)
+     
             
     xbmcplugin.endOfDirectory(addonHandle)
 
@@ -367,44 +435,64 @@ elif mode == 'folder': # General folder handling.
 
 elif mode == 'video' : # Video link from Addon or STRM. Parse and play. 
     """ We are doing a manual play to handle the id change during playon restarts. """
-    log_message("In a video:" + foldername + "::" + href + "::" + nametree)
+    log_message("In a video:" + foldername + "::" + href )
     # Run though the name tree! No restart issues but slower.
     playonUrl = build_playon_url()
     xml = get_xml(playonUrl)
-    nametreelist = nametree.split('/')
-    roothref = None
-    for group in xml.getiterator('group'):
-        if group.attrib.get('name') == nametreelist[0]:
-            roothref = group.attrib.get('href')
 
-    if roothref != None:
-        for i, v in enumerate(nametreelist):
-            log_message("Level:" + str(i) + " Value:" + v)
-            if i != 0:
-                playonUrl = build_playon_url(roothref)
-                xml = get_xml(playonUrl)
-                for group in xml.getiterator('group'):
-                    if group.attrib.get('name') == v:
-                        roothref = group.attrib.get('href')
-                        type = group.attrib.get('type')
-                        if type == 'video':
-                            # End of tree! I thinks. 
-                            playonUrl = build_playon_url(group.attrib.get('href'))
-                            name = group.attrib.get('name').encode('ascii', 'ignore')
-                            mediaXml = get_xml(playonUrl)
-                            mediaNode = mediaXml.find('media')
-                            src = mediaNode.attrib.get('src')
-                            url =  playonInternalUrl + '/' + src
-                            vplaylist = xbmc.PlayList( xbmc.PLAYLIST_VIDEO )
-                            vplaylist.clear()
-                            vplaylist.add(mediaPath + 'DummyEntry.mp4')
-                            vplaylist.add(url)
-                            listitem=xbmcgui.ListItem (name)
-                            xbmc.Player().stop()
-                            xbmc.sleep(50)
-                            xbmc.Player().play(vplaylist,listitem)
-                            xbmc.sleep(50)
-                            xbmc.executebuiltin("ActivateWindow('fullscreenvideo')")
+    if nametree == None:
+        # Play the href directly. 
+        playonUrl = build_playon_url(href)
+        name = foldername.encode('ascii', 'ignore')
+        mediaXml = get_xml(playonUrl)
+        mediaNode = mediaXml.find('media')
+        src = mediaNode.attrib.get('src')
+        url =  playonInternalUrl + '/' + src
+        vplaylist = xbmc.PlayList( xbmc.PLAYLIST_VIDEO )
+        vplaylist.clear()
+        vplaylist.add(mediaPath + 'DummyEntry.mp4')
+        vplaylist.add(url)
+        listitem=xbmcgui.ListItem (name)
+        xbmc.Player().stop()
+        xbmc.sleep(50)
+        xbmc.Player().play(vplaylist,listitem)
+        xbmc.sleep(50)
+        xbmc.executebuiltin("ActivateWindow('fullscreenvideo')")
+    else:
+        nametreelist = nametree.split('/')
+        roothref = None
+        for group in xml.getiterator('group'):
+            if group.attrib.get('name') == nametreelist[0]:
+                roothref = group.attrib.get('href')
+
+        if roothref != None:
+            for i, v in enumerate(nametreelist):
+                log_message("Level:" + str(i) + " Value:" + v)
+                if i != 0:
+                    playonUrl = build_playon_url(roothref)
+                    xml = get_xml(playonUrl)
+                    for group in xml.getiterator('group'):
+                        if group.attrib.get('name') == v:
+                            roothref = group.attrib.get('href')
+                            type = group.attrib.get('type')
+                            if type == 'video':
+                                # End of tree! I thinks. 
+                                playonUrl = build_playon_url(group.attrib.get('href'))
+                                name = group.attrib.get('name').encode('ascii', 'ignore')
+                                mediaXml = get_xml(playonUrl)
+                                mediaNode = mediaXml.find('media')
+                                src = mediaNode.attrib.get('src')
+                                url =  playonInternalUrl + '/' + src
+                                vplaylist = xbmc.PlayList( xbmc.PLAYLIST_VIDEO )
+                                vplaylist.clear()
+                                vplaylist.add(mediaPath + 'DummyEntry.mp4')
+                                vplaylist.add(url)
+                                listitem=xbmcgui.ListItem (name)
+                                xbmc.Player().stop()
+                                xbmc.sleep(50)
+                                xbmc.Player().play(vplaylist,listitem)
+                                xbmc.sleep(50)
+                                xbmc.executebuiltin("ActivateWindow('fullscreenvideo')")
         
 
         
